@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:metadata="http://www.mulesoft.org/schema/mule/metadata" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:munit="http://www.mulesoft.org/schema/mule/munit" xmlns:spring="http://www.springframework.org/schema/beans" xmlns:context="http://www.springframework.org/schema/context" xmlns:core="http://www.mulesoft.org/schema/mule/core" xmlns:mock="http://www.mulesoft.org/schema/mule/mock" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/mock http://www.mulesoft.org/schema/mule/mock/current/mule-mock.xsd
+http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd">
+    
+    <context:property-placeholder location="orders-delivery-sys-munit-test.properties" ignore-unresolvable="true"/>
+    <munit:config name="munit" doc:name="MUnit configuration" mock-connectors="false" mock-inbounds="false"/>
+    
+    <spring:beans>
+
+        <spring:import resource="classpath:orders-delivery-sys-api.xml"/>
+        <spring:import resource="classpath:common-flows.xml"/>
+    </spring:beans>
+    
+    
+   <munit:test name="GET:/order/delivery/{vendorId}/{orderId}:Success" description="success test case for delivery order status api" >
+
+
+        <mock:when messageProcessor=".*:.*" doc:name="mock-backendHTTPRequestor">
+            <mock:with-attributes>
+                <mock:with-attribute name="doc:name" whereValue="#['backendHTTPRequestor']"/>
+            </mock:with-attributes>
+            <mock:then-return payload="#[getResource('response.json').asString()]" encoding="UTF-8" mimeType="application/json">
+                <mock:inbound-properties>
+                    <mock:inbound-property key="http.status" value="200" encoding="UTF-8" mimeType="application/java"/>
+                </mock:inbound-properties>
+            </mock:then-return>
+
+
+        </mock:when>
+
+        <munit:set payload="#[null]" doc:name="setRequest">
+            <munit:inbound-properties>
+                <munit:inbound-property key="host" value="${host}" encoding="UTF-8" mimeType="application/java"/>
+                <munit:inbound-property key="content-type" value="${Content-Type}" encoding="UTF-8" mimeType="application/java"/>
+                <munit:inbound-property key="http.listener.path" value="${http.listener.path}" encoding="UTF-8" mimeType="application/java"/>
+                <munit:inbound-property key="http.method" value="${http.method.delivery.orderId}" encoding="UTF-8" mimeType="application/java"/>
+                <munit:inbound-property key="http.request.path" value="${http.request.path.delivery.orderId}" encoding="UTF-8" mimeType="application/java"/>
+                <munit:inbound-property key="marketid" value="${marketid}" encoding="UTF-8" mimeType="application/java"/>
+                <munit:inbound-property key="Accept-Language" value="${Accept-Language}" encoding="UTF-8" mimeType="application/java"/>
+                <munit:inbound-property key="http.relative.path" value="${http.request.path.delivery.orderId}" encoding="UTF-8" mimeType="application/java"/>
+                <munit:inbound-property key="clientid" value="${clientid}" encoding="UTF-8" mimeType="application/java"/>
+                <munit:inbound-property key="Authorization" value="${Authorization}" encoding="UTF-8" mimeType="application/java"/>
+                <munit:inbound-property key="http.uri.params" value="#[${get.delivery.orderId.uri.params}]" encoding="UTF-8" mimeType="application/java"/>
+                <munit:inbound-property key="http.query.params" value="#[${http.query.params.delivery.orderId}]" encoding="UTF-8" mimeType="application/java"/>
+                <munit:inbound-property key="User-Agent" value="${user-agent}" encoding="UTF-8" mimeType="application/java"/>
+                <munit:inbound-property key="correlation-id" value="${correlation-id}" encoding="UTF-8" mimeType="application/java"/>
+            </munit:inbound-properties>
+
+
+
+
+
+        </munit:set>
+        <flow-ref name="orders-delivery-sys-api-main" doc:name="orders-delivery-sys-api-main"/>
+        <json:json-to-object-transformer returnClass="java.lang.Object" doc:name="JSON to Object"/>
+        <munit:assert-true message="Get Order CheckIn API Success Scenario test failed due to invalid input request." condition="#[payload.status.code == 20000]" doc:name="Assert True"/>
+    </munit:test>
+  
+</mule>

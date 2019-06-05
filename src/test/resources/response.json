@@ -1,0 +1,15 @@
+{
+	"status": {
+		"code": 20000,
+		"message": "the call was successful",
+		"type": "success"
+	},
+	"response": {
+		"delivery": {
+			"vendorStoreId": "295a48ec-f73a-44b3-bf9a-84c8f33fc53b",
+			"vendorDraftOrderId": "9df33b08-ce3d-4e96-9dfc-053d92c02206",
+			"vendorOrderId": "295a48ec-f73a-44b3-bf9a-84c8f33fc53a",
+			"status": "CREATED"
+		}
+	}
+}

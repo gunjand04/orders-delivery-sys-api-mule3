@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:validation="http://www.mulesoft.org/schema/mule/validation" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd">
+
+
+	<http:request-config name="HTTP_Request_Config"
+		host="#[flowVars.'target.host']" port="#[flowVars.'target.port']"
+		doc:name="HTTP Request Configuration" responseTimeout="${orders.delivery.sys.conn.idle.timeout}"
+		connectionIdleTimeout="${orders.delivery.sys.conn.idle.timeout}">
+	</http:request-config>
+
+	<sub-flow name="backend-requestor">
+        <expression-component doc:name="Set Outbound Properties" doc:description="Set Api required variables &amp; headers."><![CDATA[
+message.outboundProperties['marketid'] = flowVars.marketId;
+message.outboundProperties['correlation-id'] = flowVars.correlationId;
+message.outboundProperties['User-Agent'] = flowVars.'User-Agent';
+message.outboundProperties['Accept-Language'] = flowVars.'Accept-Language';
+flowVars['outboundEntryTime'] = System.currentTimeMillis();]]></expression-component>
+		<logger
+			message="[UUID= #[flowVars.uuid]] [CorrelationID= #[flowVars.correlationId]] [Message= Calling Target System Layer] [TargetSystemURI: #[flowVars.'target.host'+':'+flowVars.'target.port'+ '/' + flowVars.'target.path']] [TargetOutboundProperties= #[headers:OUTBOUND:*]] [TargetRequestPayload = #[message.payloadAs(java.lang.String)]]"
+			level="DEBUG" category="com.cg.logger" doc:name="Logger"
+			doc:description="This logger component logs the request url and data for target system." />
+
+		<http:request config-ref="HTTP_Request_Config" path="#[flowVars.'target.path']"
+			method="#[flowVars.'target.method']" doc:name="backendHTTPRequestor">
+            <http:success-status-code-validator values="0..399,401"/>
+
+		</http:request>
+
+
+
+		<logger
+			message="[UUID= #[flowVars.uuid]] [CorrelationID= #[flowVars.correlationId]] [Message= Response from Target System] [TargetInboundProperties= #[headers:INBOUND:*]] [TargetResponsePayload = #[message.payloadAs(java.lang.String)]] [TargetResponseTime = #[java.lang.System.currentTimeMillis() - flowVars.outboundEntryTime] milliseconds]"
+			level="DEBUG" category="com.cg.logger" doc:name="Logger" />
+
+		<logger
+			message="[UUID= #[flowVars.uuid]] [CorrelationID= #[flowVars.correlationId]] [Message= Response from Target System] [TargetResponseTime = #[java.lang.System.currentTimeMillis() - flowVars.outboundEntryTime] milliseconds]"
+			level="DEBUG" category="com.cg.logger.perf" doc:name="Perf Logger" />
+        <set-variable variableName="resultCode" value="#[json:resultCode]" doc:name="Set Result Code"/>
+
+
+	</sub-flow>
+    <sub-flow name="uber-refresh-token">
+        <choice doc:name="Choice">
+            <when expression="#[message.inboundProperties.'http.status' == 401]">
+                <expression-component doc:name="Set Properties and Vars" doc:description="Set Api required variables &amp; headers."><![CDATA[flowVars['target.host'] = flowVars.configVar.accountsTpRefreshHost;
+flowVars['target.port'] = flowVars.configVar.accountsTpRefreshPort;
+flowVars['target.method'] = flowVars.configVar.accountsTpRefreshMethod;
+flowVars['target.path'] = flowVars.configVar.accountsTpRefreshPath;
+message.outboundProperties['sourceapp'] = flowVars['sourceAppName'];
+message.outboundProperties['locale'] = flowVars['Accept-Language'];]]></expression-component>
+                <set-payload value="{ 
+	&quot;credentials&quot;: 
+	{ 
+		&quot;token&quot;: 
+			{ 
+				&quot;accessToken&quot;: #[flowVars.'uber-accessToken'], 
+				&quot;refreshToken&quot;: #[flowVars.'uber-refreshToken'] 
+			}, 
+		    &quot;provider&quot;: &quot;uber&quot;
+	} 
+}" doc:name="Set Payload"/>
+                <flow-ref name="backend-requestor" doc:name="backend-requestor"/>
+                <set-variable variableName="Authorization" value="#[json:access_token]" mimeType="application/java" doc:name="UE Auth Token"/>
+                <expression-component doc:name="Set Properties and Vars" doc:description="Set Api required variables &amp; headers."><![CDATA[message.outboundProperties['Authorization'] = "Bearer " + flowVars.Authorization;
+message.outboundProperties['Content-Type'] = 'application/json';
+flowVars['target.host.backup'] = flowVars['target.host'];
+flowVars['target.port.backup'] = flowVars['target.port'];
+flowVars['target.method.backup'] = flowVars['target.method'];
+flowVars['target.path.backup'] = flowVars['target.path'];
+]]></expression-component>
+                <set-payload value="#[flowVars.'payload.backup']" encoding="UTF-8" mimeType="application/json" doc:name="Set Payload"/>
+                <flow-ref name="backend-requestor" doc:name="backend-requestor"/>
+
+            </when>
+            <otherwise>
+                <logger level="DEBUG" doc:name="Logger" message="No need to refresh token if http status is not 401"/>
+            </otherwise>
+        </choice>
+    </sub-flow>
+
+
+
+
+	<sub-flow name="set-response-headers">
+
+		<expression-component doc:name="Set Response Headers"
+			doc:description="Set Response Headers &amp; headers."><![CDATA[//outbound headers
+message.outboundProperties['correlation-id'] = flowVars.correlationId;
+message.outboundProperties['Content-Language'] =(message.inboundProperties['Content-Language'] != null)?message.inboundProperties['Content-Language']:flowVars.'Accept-Language';
+message.outboundProperties['Content-Type'] = (message.inboundProperties['Content-Type'] != null)?message.inboundProperties['Content-Type']:'application/json';]]></expression-component>
+
+		<logger
+			message="[UUID= #[flowVars.uuid]] [CorrelationID= #[flowVars.correlationId]] [Message= Sending Response to Client] [ResponseOutboundProperties= #[headers:INBOUND:*]] [ResponsePayload= #[message.payloadAs(java.lang.String)]]  [APIExecutionTime= #[(System.currentTimeMillis() - flowVars.apiEntryTime)]]"
+			level="DEBUG" category="com.cg.logger" doc:name="Logger"
+			doc:description="This logger component logs trace message as soon as request from client is received." />
+		<logger
+			message="[UUID= #[flowVars.uuid]] [CorrelationID= #[flowVars.correlationId]] [Message= Sending Response to Client] [APITotalExecutionTime= #[(System.currentTimeMillis() - flowVars.apiEntryTime)]"
+			level="DEBUG" category="com.cg.logger.perf" doc:name="Perf Logger"
+			doc:description="This logger component logs trace message as soon as request from client is received." />
+
+	</sub-flow>
+
+	
+	<sub-flow name="create-error-response">
+		<enricher source="#[payload]" target="#[flowVars.errorConfig]"
+			doc:name="set-error-config">
+			<parse-template location="error-orders-delivery-sys.json"
+				mimeType="application/json" doc:name="Read Error Json File" />
+		</enricher>
+		<dw:transform-message doc:name="Error Response Payload">
+			<dw:set-payload><![CDATA[%dw 1.0
+%output application/json 
+skipNullOn="everywhere"
+%var resultCodeTemp= flowVars.resultCode as :string when flowVars.resultCode != null otherwise (flowVars.ecpResultCode as :string when flowVars.ecpResultCode != null otherwise 500)
+%var resultCode= resultCodeTemp when flowVars.errorConfig.'$resultCodeTemp'.RootCode != null otherwise 500
+%var errorMessage = (". " ++ flowVars.errorMessage) when flowVars.errorMessage != null otherwise (". Mapping does not exists for backend ResulCode: " ++ resultCodeTemp when (flowVars.errorConfig.'$resultCodeTemp'.RootCode == null) otherwise (".Backend Response does not contain ResultCode" when (flowVars.resultCode == null) otherwise ""))
+%var error={
+	"code": flowVars.errorConfig.'$resultCode'.ResultCode as :number,
+	"type": flowVars.errorConfig.'$resultCode'.Type,
+	"message": flowVars.errorConfig.'$resultCode'.ResultDescription ++ errorMessage,
+	"property": flowVars.errorConfig.'$resultCode'.Property,
+	"service": flowVars.errorConfig.'$resultCode'.Service
+}
+---
+{
+	"status": {
+		"code": flowVars.errorConfig.'$resultCode'.RootCode as :number,
+		"type": flowVars.errorConfig.'$resultCode'.RootType,
+		"message": flowVars.errorConfig.'$resultCode'.message,
+		"errors": [] + error
+	}
+}]]></dw:set-payload>
+			<dw:set-property propertyName="http.status"><![CDATA[%dw 1.0
+%output application/java
+%var resultCodeTemp= flowVars.resultCode as :string when flowVars.resultCode != null otherwise (flowVars.ecpResultCode as :string when flowVars.ecpResultCode != null otherwise 500)
+%var resultCode= resultCodeTemp when flowVars.errorConfig.'$resultCodeTemp'.RootCode != null otherwise 500
+---
+flowVars.errorConfig.'$resultCode'.HTTPCode as :number when flowVars.errorConfig.'$resultCode'.HTTPCode != null otherwise 500]]></dw:set-property>
+		</dw:transform-message>
+		<flow-ref name="set-response-headers" doc:name="set-response-headers" />
+		<logger
+			message="[UUID= #[flowVars.uuid]] [CorrelationID= #[flowVars.correlationId]] [Message= Sending Error Response to Client] [APITotalExecutionTime= #[(System.currentTimeMillis() - flowVars.apiEntryTime)]"
+			level="ERROR" category="com.cg.logger" doc:name="Logger"
+			doc:description="This logger component logs trace message as soon as request from client is received." />
+	</sub-flow>
+
+</mule>

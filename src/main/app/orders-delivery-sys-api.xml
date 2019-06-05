@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:context="http://www.springframework.org/schema/context" xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:apikit="http://www.mulesoft.org/schema/mule/apikit" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:metadata="http://www.mulesoft.org/schema/mule/metadata" xmlns:scripting="http://www.mulesoft.org/schema/mule/scripting" xmlns:spring="http://www.springframework.org/schema/beans" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/scripting http://www.mulesoft.org/schema/mule/scripting/current/mule-scripting.xsd
+http://www.mulesoft.org/schema/mule/apikit http://www.mulesoft.org/schema/mule/apikit/current/mule-apikit.xsd
+http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-current.xsd">
+    
+    <apikit:config name="Router" raml="orders-delivery-sys-api.raml" consoleEnabled="true" consolePath="console" keepRamlBaseUri="false" doc:name="Router" />
+     
+    <configuration defaultExceptionStrategy-ref="Orders_Delivery_Choice_Exception_Strategy" doc:name="Configuration">
+        <http:config useTransportForUris="false" />
+    </configuration>
+    <configuration doc:name="Configuration">
+        <expression-language>
+            <import class="org.apache.commons.lang3.StringUtils" />
+            <import class="org.json.simple.JSONArray" />
+        </expression-language>
+    </configuration>
+	
+    <http:listener-config name="api-HttpListener" host="${orders.delivery.sys.host}" port="${orders.delivery.sys.private.port}" doc:name="HTTP Listener Configuration" />
+    <apikit:config name="orders-delivery-sys-api-config" raml="orders-delivery-sys-api.raml" consoleEnabled="false" doc:name="Router" />
+    
+    <context:property-placeholder location="order-delivery-sys-api-${deploy-env}.properties"/>
+    <flow name="orders-delivery-sys-api-main" processingStrategy="synchronous">
+        <http:listener config-ref="api-HttpListener" path="${orders.delivery.sys.base.path}" doc:name="HTTP" />
+        <expression-component doc:name="Set Common Variables"><![CDATA[flowVars['apiEntryTime'] = System.currentTimeMillis();
+flowVars['env'] = "${deploy-env}";
+flowVars['apiName'] = "${orders.delivery.sys.api.name}";
+flowVars['appName'] = "${orders.delivery.sys.api.name}";
+flowVars['marketId'] = StringUtils.upperCase(message.inboundProperties.'marketid');
+flowVars['correlationId'] = message.inboundProperties.'correlation-id';
+flowVars['User-Agent'] = message.inboundProperties.'User-Agent';
+flowVars['Accept-Language'] = message.inboundProperties.'Accept-Language';
+flowVars['uber-accessToken'] = message.inboundProperties.'uber-accessToken';
+flowVars['uber-refreshToken'] = message.inboundProperties.'uber-refreshToken';
+flowVars['latitude'] = message.inboundProperties.'http.query.params'.latitude;
+flowVars['longitude'] = message.inboundProperties.'http.query.params'.longitude;
+flowVars['limit'] = message.inboundProperties.'http.query.params'.limit;
+flowVars['status'] = message.inboundProperties.'http.query.params'.status;
+flowVars['vendorId'] = message.inboundProperties.'http.uri.params'.vendorId;
+flowVars['orderId'] = message.inboundProperties.'http.uri.params'.orderId;]]></expression-component>
+
+        <logger message="[UUID= #[flowVars.uuid]] [CorrelationID= #[flowVars.correlationId]] [Message= Request Received from Client] [InboundProperties= #[headers:INBOUND:*]] " level="DEBUG" category="com.cg.logger" doc:name="Logger" doc:description="This logger component logs trace message as soon as request from client is received." />
+        <logger message="[UUID=#[flowVars.uuid]] [Correlation ID=#[flowVars.correlationId]] [Message= Request Received from Client] [RequestPath: message.inboundProperties.'http.request.path']]" level="DEBUG" category="com.cg.logger.perf" doc:name="Perf Logger" doc:description="Log request specific details in specific format." />
+
+        <apikit:router config-ref="orders-delivery-sys-api-config" doc:name="APIkit Router" />
+
+
+
+
+        <exception-strategy ref="Orders_Delivery_Choice_Exception_Strategy" doc:name="Reference Exception Strategy" />
+    </flow>
+    <flow name="orders-delivery-sys-api-console">
+        <http:listener config-ref="api-HttpListener" path="/console/*" doc:name="HTTP" />
+        <apikit:console config-ref="orders-delivery-sys-api-config" doc:name="APIkit Console" />
+    </flow>
+
+ 
+    <flow name="get:/order/delivery/{vendorId}/{orderId}:orders-delivery-sys-api-config">
+        <expression-component doc:name="Set Target Variables"><![CDATA[message.outboundProperties['Authorization'] = "Bearer "+ flowVars['uber-accessToken'];
+if(flowVars['status'] == '${delivery.orders.status.draft.name}' ){
+	flowVars['target.method'] = '${ueOrderStatusDraftMethod}';
+	flowVars['target.path'] = '${ueOrderStatusDraftPath}' +'/'+ flowVars['orderId'] ;
+	flowVars['target.host'] = '${ueOrderStatusDraftHost.bk}';
+	flowVars['target.port'] = '${ueOrderStatusDraftPort.bk}';
+}
+else{
+	flowVars['target.method'] = '${ueOrderStatusActiveMethod}';
+	flowVars['target.path'] = '${ueOrderStatusActivePath}' +'/'+  flowVars['orderId'];
+	flowVars['target.host'] = '${ueOrderStatusActiveHost.bk}';
+	flowVars['target.port'] = '${ueOrderStatusActivePort.bk}';
+}
+//backup for retry in case of token expiry
+flowVars['target.host.backup'] = flowVars['target.host'];
+flowVars['target.port.backup'] = flowVars['target.port'];
+flowVars['target.method.backup'] = flowVars['target.method'];
+flowVars['target.path.backup'] = flowVars['target.path'];]]></expression-component>
+        <flow-ref name="backend-requestor" doc:name="backend-requestor"/>
+        <message-filter onUnaccepted="create-error-response" throwOnUnaccepted="true" doc:name="Error Filter">
+            <expression-filter expression="#[message.inboundProperties.'http.status' == 200 || message.inboundProperties.'http.status' == 401]"/>
+        </message-filter>
+        <flow-ref name="uber-refresh-token" doc:name="uber-refresh-token"/>
+        <message-filter onUnaccepted="create-error-response" throwOnUnaccepted="true" doc:name="Error Filter">
+            <expression-filter expression="#[message.inboundProperties.'http.status' == 200]"/>
+
+        </message-filter>
+        <dw:transform-message doc:name="Prepare Response" metadata:id="5f230b23-8e5f-4936-b76e-c5a48afb0efd">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json skipNullOn="everywhere"
+---
+{
+	"status": {
+		"code": 20000,
+		"message": "the call was successful",
+		"type": "success"
+	},
+	"response": {
+		"delivery": {
+			"vendorStoreId": payload.'store_id',
+			"vendorDraftOrderId": payload.'draft_order_id',
+			"vendorOrderId": payload.'order_id',
+			"status": payload.'current_state'
+		}
+	}
+}]]></dw:set-payload>
+        </dw:transform-message>
+        <flow-ref name="set-response-headers" doc:name="set-response-headers"/>
+
+    </flow>
+
+
+	
+    <choice-exception-strategy name="Orders_Delivery_Choice_Exception_Strategy">
+        <catch-exception-strategy when="#[exception.causedExactlyBy(org.mule.module.apikit.exception.BadRequestException) || exception.causedExactlyBy(org.mule.module.apikit.exception.InvalidUriParameterException)]" doc:name="Bad Request Catch Exception Strategy">
+            <logger message="[UUID = #[flowVars.uuid]] [CorrelationID = #[flowVars.correlationId]] [Message = BAD Request] [ErrorMessage = #[exception.getDetailedMessage()]]" level="ERROR" category="com.cg.logger" doc:name="Logger" />
+            <set-variable variableName="resultCode" value="#[400]" encoding="UTF-8" mimeType="application/java" doc:name="Result Code" />
+            <set-variable variableName="errorMessage" value="#[(exception != empty)?exception.getMessage():null]" mimeType="application/java" doc:name="Error Message" />
+
+            <flow-ref name="create-error-response" doc:name="create-error-response" />
+        </catch-exception-strategy>
+        <catch-exception-strategy when="#[exception.causedExactlyBy(org.mule.module.apikit.exception.InvalidHeaderException)]" doc:name="Invalid Header Catch Exception Strategy">
+            <logger message="[UUID = #[flowVars.uuid]] [CorrelationID = #[flowVars.correlationId]] [Message = Invalid Request Header] [ErrorMessage = #[exception.getDetailedMessage()]]" level="ERROR" category="com.cg.logger" doc:name="Logger" />
+            <set-variable variableName="resultCode" value="#[400]" encoding="UTF-8" mimeType="application/java" doc:name="Result Code" />
+            <set-variable variableName="errorMessage" value="#[(exception != empty)?exception.getMessage():null]" mimeType="application/java" doc:name="Error Message" />
+            <flow-ref name="create-error-response" doc:name="create-error-response" />
+        </catch-exception-strategy>
+        <catch-exception-strategy when="#[exception.causedExactlyBy(org.mule.module.apikit.exception.InvalidQueryParameterException)]" doc:name="Invalid Query Parameter Exception Strategy">
+            <logger message="[UUID = #[flowVars.uuid]] [CorrelationID = #[flowVars.correlationId]] [Message = Invalid Query Parameter] [ErrorMessage = #[exception.getDetailedMessage()]]" level="ERROR" category="com.cg.logger" doc:name="Logger" />
+            <set-variable variableName="resultCode" value="#[400]" doc:name="Result Code" encoding="UTF-8" mimeType="application/java" />
+            <set-variable variableName="errorMessage" value="#[(exception != empty)?exception.getMessage():null]" mimeType="application/java" doc:name="Error Message" />
+            <flow-ref name="create-error-response" doc:name="create-error-response" />
+        </catch-exception-strategy>
+        <catch-exception-strategy when="#[exception.causedExactlyBy(org.mule.module.apikit.exception.MethodNotAllowedException)]" doc:name="Method Not Allowed Exception Strategy">
+            <logger message="[UUID = #[flowVars.uuid]] [CorrelationID = #[flowVars.correlationId]] [Message = Method Not Allowed] [ErrorMessage = #[exception.getDetailedMessage()]]" level="ERROR" category="com.cg.logger" doc:name="Logger" />
+            <set-variable variableName="resultCode" value="#[405]" doc:name="Result Code" encoding="UTF-8" mimeType="application/java" />
+            <set-variable variableName="errorMessage" value="#[(exception != empty)?exception.getMessage():null]" mimeType="application/java" doc:name="Error Message" />
+            <flow-ref name="create-error-response" doc:name="create-error-response" />
+        </catch-exception-strategy>
+
+        
+        <catch-exception-strategy when="#[exception.causedExactlyBy(org.mule.module.apikit.exception.UnsupportedMediaTypeException)]" doc:name="Unsupported Media Type Exception Strategy">
+            <logger message="[UUID = #[flowVars.uuid]] [CorrelationID = #[flowVars.correlationId]] [Message = Unsupported Media Type] [ErrorMessage = #[exception.getDetailedMessage()]]" level="ERROR" category="com.cg.logger" doc:name="Logger" />
+            <set-variable variableName="resultCode" value="#[415]" doc:name="Result Code" encoding="UTF-8" mimeType="application/java" />
+            <set-variable variableName="errorMessage" value="#[(exception != empty)?exception.getMessage():null]" mimeType="application/java" doc:name="Error Message" />
+            <flow-ref name="create-error-response" doc:name="create-error-response" />
+        </catch-exception-strategy>
+        <catch-exception-strategy when="#[exception.causedExactlyBy(org.mule.module.apikit.exception.NotFoundException)]" doc:name="Not Found Exception Strategy">
+            <logger message="[UUID = #[flowVars.uuid]] [CorrelationID = #[flowVars.correlationId]] [Message = Not Found] [ErrorMessage = #[exception.getDetailedMessage()]]" level="ERROR" category="com.cg.logger" doc:name="Logger" />
+            <set-variable variableName="resultCode" value="#[404]" doc:name="Result Code" encoding="UTF-8" mimeType="application/java" />
+            <set-variable variableName="errorMessage" value="#[(exception != empty)?exception.getMessage():null]" mimeType="application/java" doc:name="Error Message" />
+            <flow-ref name="create-error-response" doc:name="create-error-response" />
+        </catch-exception-strategy>		
+        <catch-exception-strategy doc:name="Service Unavailable Catch Exception Strategy" when="#[message.inboundProperties.'http.status' == 503]">
+            <logger message="[UUID = #[flowVars.uuid]] [CorrelationID = #[flowVars.correlationId]] [Message = Service Unavailable] [ErrorMessage = #[exception.getDetailedMessage()]]" level="ERROR" category="com.cg.logger" doc:name="Logger" />
+            <set-variable variableName="resultCode" value="#[503]" encoding="UTF-8" mimeType="application/java" doc:name="Result Code" />
+            <set-variable variableName="errorMessage" value="#[(exception != empty)?exception.getMessage():null]" mimeType="application/java" doc:name="Error Message" />
+            <flow-ref name="create-error-response" doc:name="create-error-response" />
+        </catch-exception-strategy>
+        <catch-exception-strategy doc:name="Gateway TImeout Catch Exception Strategy" when="#[message.inboundProperties.'http.status' == 504]">
+            <logger message="[UUID = #[flowVars.uuid]] [CorrelationID = #[flowVars.correlationId]] [Message = Timeout] [ErrorMessage = #[exception.getDetailedMessage()]]" level="ERROR" category="com.cg.logger" doc:name="Logger" />
+            <set-variable variableName="resultCode" value="#[504]" encoding="UTF-8" mimeType="application/java" doc:name="Result Code" />
+            <set-variable variableName="errorMessage" value="#[(exception != empty)?exception.getMessage():null]" mimeType="application/java" doc:name="Error Message" />
+            <flow-ref name="create-error-response" doc:name="create-error-response" />
+        </catch-exception-strategy>
+        <catch-exception-strategy when="#[exception.causedBy(java.net.ConnectException)]" doc:name="Connect - Catch Exception Strategy">
+            <logger message="[UUID = #[flowVars.uuid]] [CorrelationID = #[flowVars.correlationId]] [Message = Connect Exception] [ErrorMessage = #[exception.getDetailedMessage()]]" level="ERROR" category="com.cg.logger" doc:name="Logger" />
+            <set-variable variableName="resultCode" value="#[503]" encoding="UTF-8" mimeType="application/java" doc:name="Result Code" />
+            <set-variable variableName="errorMessage" value="#[(exception != empty)?exception.getMessage():null]" mimeType="application/java" doc:name="Error Message" />
+            <flow-ref name="create-error-response" doc:name="create-error-response" />
+        </catch-exception-strategy>
+        <catch-exception-strategy doc:name="Transformer Catch Exception Strategy" when="#[exception.causedExactlyBy(org.mule.api.transformer.TransformerMessagingException)]">
+            <logger message="[UUID = #[flowVars.uuid]] [CorrelationID = #[flowVars.correlationId]] [Message = Transformer Exception] [ErrorMessage = #[exception.getDetailedMessage()]]" level="ERROR" category="com.cg.logger" doc:name="Logger" />
+            <set-variable variableName="resultCode" value="#[510]" encoding="UTF-8" mimeType="application/java" doc:name="Result Code" />
+            <set-variable variableName="errorMessage" value="#[(exception != empty)?exception.getMessage():null]" mimeType="application/java" doc:name="Error Message" />
+            <flow-ref name="create-error-response" doc:name="create-error-response" />
+        </catch-exception-strategy>
+
+        <catch-exception-strategy doc:name="Default Catch Exception Strategy">
+            <logger message="[UUID = #[flowVars.uuid]] [CorrelationID = #[flowVars.correlationId]] [Message = Default] [ErrorMessage = #[exception.getDetailedMessage()]]" level="ERROR" category="com.cg.logger" doc:name="Logger" />
+
+            <set-variable variableName="resultCode" value="#[500]" doc:name="Result Code"/>
+
+            <flow-ref name="create-error-response" doc:name="create-error-response" />
+        </catch-exception-strategy>
+    </choice-exception-strategy>
+</mule>
